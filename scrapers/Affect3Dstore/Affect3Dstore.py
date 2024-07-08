@@ -1,5 +1,5 @@
 import json
-from typing import List
+import syslog
 
 import requests
 import sys
@@ -10,23 +10,41 @@ from bs4 import BeautifulSoup
 from scrapers.py_common.types import ScrapedStudio, ScrapedScene, ScrapedTag
 
 
-def read_json_Input():
+def read_json_input():
     return json.loads(sys.stdin.read())
 
 
 # scape functions
 def scrape_scene(soup: BeautifulSoup) -> ScrapedScene:
+    # calls functions to get scene metadata
+
     return {
-        "title": extract_meta_title(soup),
+        "title": scrape_title(soup),
         "details": extract_details(soup),
         "url": url,
-        "image": download_image(soup),
+        "image": extract_image_url(soup),
         "studio": scrape_studio(soup),
         "tags": scrape_tags(soup),
     }
 
 
 def scrape_studio(soup: BeautifulSoup) -> ScrapedStudio:
+    # uses the Artists, because they created, but didn't Perform in the video
+
+    product_attribute_table = extract_product_attribute_specs(soup)
+    for row in product_attribute_table.find_all('tr'):
+        th_elements = row.find_all('th')
+        td_elements = row.find_all('td')
+
+        for th, td in zip(th_elements, td_elements):
+            if th.get_text() in ["Artist/Circle"]:
+                studio: ScrapedStudio = {
+                    "name": td.get_text(),
+                    "url": td.get('href'),
+                }
+                if None not in [studio.get("name"), studio.get("url")]:
+                    return studio
+
     artist_tag = soup.find(id='attr-artist-link')
     if artist_tag:
         return {
@@ -35,37 +53,77 @@ def scrape_studio(soup: BeautifulSoup) -> ScrapedStudio:
         }
 
 
+def scrape_title(soup: BeautifulSoup) -> str:
+    # try to get title from html body and falls back to head
+
+    title = extract_page_title_wrapper(soup)
+    if title is None:
+        title = extract_meta_title(soup)
+        if title is None:
+            sys.exit("Title not found")
+    return title
+
+
 def scrape_tags(soup: BeautifulSoup) -> list[ScrapedTag]:
-    return extract_meta_keywords(soup)
+    # gets tags from body and head
+    # merges them and returns a list of tags
+
+    tags: list[ScrapedTag] = []
+    product_attribute_table = extract_product_attribute_specs(soup)
+    for row in product_attribute_table.find_all('tr'):
+        th_elements = row.find_all('th')
+        td_elements = row.find_all('td')
+
+        for th, td in zip(th_elements, td_elements):
+            if th.get_text() in ["Characters", "Content", "Breast Size", "Genre", "Language"]:
+                for a in td.find_all('a'):
+                    tags.append(ScrapedTag(name=a.get_text(strip=True)))
+
+    meta_keywords = extract_meta_keywords(soup)
+    for keyword in meta_keywords:
+        if keyword not in tags:
+            tags.append(keyword)
+    return tags
 
 
 # extract functions
-def extract_meta_title(soup: BeautifulSoup) -> str | None:
-    # Find the <meta> tag with name="title"
-    meta_title_tag = soup.find('meta', attrs={'name': 'title'})
+def extract_page_title_wrapper(soup: BeautifulSoup) -> str | None:
+    page_title_wrapper = soup.find('span', class_='base', itemprop='name')
+    if page_title_wrapper:
+        return page_title_wrapper.text
 
+
+def extract_meta_title(soup: BeautifulSoup) -> str | None:
+    # extracts the title from the title meta tog
+
+    meta_title_tag = soup.find('meta', attrs={'name': 'title'})
     if meta_title_tag and 'content' in meta_title_tag.attrs:
         title_content = meta_title_tag['content']
         return title_content
-    else:
-        return None
 
 
-def extract_meta_keywords(soup: BeautifulSoup) -> list[ScrapedTag] | None:
-    # Find the <meta> tag with name="keywords"
+def extract_meta_keywords(soup: BeautifulSoup) -> list[ScrapedTag]:
+    # extracts tags from the keywords meta tag
+    # is used as a fallback
+
     meta_keywords_tag = soup.find('meta', attrs={'name': 'keywords'})
 
     if meta_keywords_tag and 'content' in meta_keywords_tag.attrs:
         keywords_content = meta_keywords_tag['content']
         keywords_array = [ScrapedTag(name=keyword.strip()) for keyword in keywords_content.split(',')]
-        #keywords_array: list[str] = [keyword.strip() for keyword in keywords_content.split(',')]
         return keywords_array
     else:
-        return None
+        return sys.exit(1)
 
 
-def extract_details(soup: BeautifulSoup) -> str | None:
-    # Find the <div> tag with class value and itemprop="description"
+def extract_product_attribute_specs(soup: BeautifulSoup) -> BeautifulSoup:
+    product_attribute_specs = soup.find('table', id='product-attribute-specs-table')
+    if product_attribute_specs not in [None, ""]:
+        return product_attribute_specs
+    sys.exit(1)
+
+
+def extract_details(soup: BeautifulSoup) -> str:
     description_div = soup.find('div', class_='value', itemprop='description')
 
     if description_div:
@@ -79,18 +137,10 @@ def extract_details(soup: BeautifulSoup) -> str | None:
 
         return description_text.strip()
     else:
-        return None
+        sys.exit(1)
 
 
-def extract_description_from_h2(soup: BeautifulSoup) -> str | None:
-    h2_tag = soup.find('h2', class_='page-custom-description')
-    if h2_tag:
-        return h2_tag.text
-    else:
-        return None
-
-
-def extract_image_url(soup: BeautifulSoup) -> str | None:
+def extract_image_url(soup: BeautifulSoup) -> str:
     pattern = r'\[data-gallery-role=gallery-placeholder\]'
     script_tags = soup.find_all('script', type='text/x-magento-init')
 
@@ -103,29 +153,17 @@ def extract_image_url(soup: BeautifulSoup) -> str | None:
         json_end = script_tag.text.rfind('}') + 1
         json_object = script_tag.text[json_start:json_end]
         json_dict = json.loads(json_object)
-        return json_dict.get('[data-gallery-role=gallery-placeholder]').get('mage/gallery/gallery').get('data')[0].get('full')
-    return None
+        return json_dict.get('[data-gallery-role=gallery-placeholder]').get('mage/gallery/gallery').get('data')[0].get(
+            'full')
+    return sys.exit(1)
 
-
-def download_image(soup: BeautifulSoup) -> str | None:
-    image_url = extract_image_url(soup)
-    image_res = requests.get(image_url)
-
-    if image_res.status_code == 200:
-        # Convert the image content to base64
-        image_base64 = base64.b64encode(image_res.content)
-
-        # Convert bytes to string
-        return image_base64.decode('utf-8')
-    return None
-
-def read_json_input():
-    json_input = sys.stdin.read()
-    return json.loads(json_input)
 
 if __name__ == "__main__":
     if sys.argv[1] == 'scrapeByURL':
         url = read_json_input().get('url')
+        session = requests.Session().cookies
+        session.set("age-verify", "1")
         response = requests.get(url)
+
         beautifulSoup = BeautifulSoup(response.text, 'html.parser')
         print(json.dumps(scrape_scene(beautifulSoup)))
