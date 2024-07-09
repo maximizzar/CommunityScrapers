@@ -1,0 +1,19 @@
+name: TheJoiDatabase
+#performerByName:
+#performerByFragment:
+#performerByURL:
+#sceneByName:
+#sceneByQueryFragment:
+#sceneByFragment:
+sceneByURL:
+  - action: script
+    url:
+      - www.the-joi-database.com/
+      - the-joi-database.com/
+    script:
+      - python
+      - ./TheJoiDatabase.py
+      - scrapeByURL
+#movieByURL:
+#galleryByFragment:
+#galleryByURL:
