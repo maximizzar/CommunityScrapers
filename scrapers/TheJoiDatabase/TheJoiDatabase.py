@@ -7,7 +7,7 @@ import requests
 from dotenv import load_dotenv, dotenv_values
 from bs4 import BeautifulSoup
 
-from scrapers.py_common.types import \
+from py_common.types import \
     ScrapedPerformer, ScrapedStudio, ScrapedMovie, ScrapedGallery, ScrapedScene, ScrapedTag, \
     SceneSearchResult
 
@@ -226,10 +226,9 @@ def sceneByName() -> SceneSearchResult:
 
 
 def sceneByURL() -> ScrapedScene:
-    load_dotenv()
-
-    #url: str = read_json_input().get('url')
-    url: str = {"url": "https://www.the-joi-database.com/watch/fb22cad92271b457d495a3db"}.get('url')
+    url: str = read_json_input().get('url')
+    if sys.argv[2] == "debug":
+        url = {"url": "https://www.the-joi-database.com/watch/fb22cad92271b457d495a3db"}.get('url')
 
     session = create_session()
     response = session.get(url)
@@ -237,7 +236,6 @@ def sceneByURL() -> ScrapedScene:
         update_token(os.getenv("rt_token"), response.headers.get('rt_token'), 'rt_token')
     if response.headers.get('token') not in ["", None]:
         update_token(os.getenv("token"), response.headers.get('token'), 'token')
-    load_dotenv()
 
     soup: BeautifulSoup = BeautifulSoup(response.text, "html.parser")
 
@@ -282,6 +280,7 @@ def update_token(old_token: str, new_token: str, token_name: str) -> None:
 
 
 def create_session() -> requests.Session:
+    load_dotenv()
     session: requests.Session = requests.Session()
     if os.getenv("rt_token") not in ["", None]:
         session.cookies.set("rt_token", os.getenv("rt_token"))
