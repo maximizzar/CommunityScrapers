@@ -80,9 +80,10 @@ def scrape_tags(soup: BeautifulSoup) -> list[ScrapedTag]:
                     tags.append(ScrapedTag(name=a.get_text(strip=True)))
 
     meta_keywords = extract_meta_keywords(soup)
-    for keyword in meta_keywords:
-        if keyword not in tags:
-            tags.append(keyword)
+    if meta_keywords:
+        for keyword in meta_keywords:
+            if keyword not in tags:
+                tags.append(keyword)
     return tags
 
 
@@ -102,7 +103,7 @@ def extract_meta_title(soup: BeautifulSoup) -> str | None:
         return title_content
 
 
-def extract_meta_keywords(soup: BeautifulSoup) -> list[ScrapedTag]:
+def extract_meta_keywords(soup: BeautifulSoup) -> list[ScrapedTag] | None:
     # extracts tags from the keywords meta tag
     # is used as a fallback
 
@@ -113,13 +114,14 @@ def extract_meta_keywords(soup: BeautifulSoup) -> list[ScrapedTag]:
         keywords_array = [ScrapedTag(name=keyword.strip()) for keyword in keywords_content.split(',')]
         return keywords_array
     else:
-        return sys.exit(1)
+        return None
 
 
 def extract_product_attribute_specs(soup: BeautifulSoup) -> BeautifulSoup:
     product_attribute_specs = soup.find('table', id='product-attribute-specs-table')
     if product_attribute_specs not in [None, ""]:
         return product_attribute_specs
+    sys.stderr.write("Failed to extract_product_attribute_specs!")
     sys.exit(1)
 
 
@@ -137,6 +139,7 @@ def extract_details(soup: BeautifulSoup) -> str:
 
         return description_text.strip()
     else:
+        sys.stderr.write("Failed to extract_details!")
         sys.exit(1)
 
 
@@ -160,10 +163,20 @@ def extract_image_url(soup: BeautifulSoup) -> str:
 
 if __name__ == "__main__":
     if sys.argv[1] == 'scrapeByURL':
-        url = read_json_input().get('url')
-        session = requests.Session().cookies
-        session.set("age-verify", "1")
-        response = requests.get(url)
+        if sys.argv[2] == "Debug":
+            url: str = {"url": "https://affect3dstore.com/elven-lust"}.get('url')
+        else:
+            url = read_json_input().get('url')
+
+        cookies = requests.Session().cookies
+        cookies.set("age-verify", "1")
+        response = requests.get(url, cookies=cookies)
 
         beautifulSoup = BeautifulSoup(response.text, 'html.parser')
-        print(json.dumps(scrape_scene(beautifulSoup)))
+
+        if sys.argv[2] == "Debug":
+            with open("scene.json", 'w') as file:
+                file.write(json.dumps(scrape_scene(beautifulSoup)))
+                file.close()
+        else:
+            print(json.dumps(scrape_scene(beautifulSoup)))
