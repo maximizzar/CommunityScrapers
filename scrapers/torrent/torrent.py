@@ -9,10 +9,9 @@ from pathlib import Path
 from py_common.deps import ensure_requirements
 from py_common import graphql
 
-ensure_requirements("bencoder.pyx")
+ensure_requirements("fastbencode")
 
-from bencoder import bdecode  # noqa: E402
-
+from fastbencode import bdecode # noqa: E402
 
 TORRENTS_PATH = Path("torrents")
 
@@ -69,10 +68,10 @@ def get_torrent_metadata(torrent_data):
             res["tags"] = [{"name": decode_bytes(t)} for t in torrent_data[b"metadata"][b"taglist"]]
         if b"taglist" in torrent_data[b"metadata"]:
             res["performers"]=[{"name":x} for x in process_tags_performers(torrent_data[b"metadata"][b"taglist"])]
-        if b"comment" in torrent_data:
-            res["url"] = decode_bytes(torrent_data[b"comment"])
         if b"creation date" in torrent_data:
             res["date"] = datetime.fromtimestamp(torrent_data[b"creation date"]).strftime("%Y-%m-%d")
+    if b"comment" in torrent_data:
+        res["url"] = decode_bytes(torrent_data[b"comment"])
     return res
 
 
@@ -125,6 +124,9 @@ elif sys.argv[1] == "fragment":
 elif sys.argv[1] == "search":
     search = json.loads(sys.stdin.read()).get('name')
     torrents = list(TORRENTS_PATH.rglob('*.torrent'))
+    if len(torrents) == 0:
+        print("No torrents found")
+        exit(1)
     ratios = {}
     for t in torrents:
         clean_t = cleanup_name(t)

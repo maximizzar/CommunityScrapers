@@ -1,5 +1,4 @@
 name: "Nubiles"
-
 # Nubiles Porn sites: https://nubilesporn.com/page/series
 # Nubile Films sites: https://nubilefilms.com/page/series
 # Standalone sites: https://nubilescash.com/page/about (contains all network sites)
@@ -64,6 +63,7 @@ sceneByURL:
       - nfbusty.com/video/watch/
       - nubiles.net/video/watch/
       - smashed.xxx/video/watch/
+      - thepovgod.com/video/watch/
 
 galleryByURL:
   # Nubiles Porn sites
@@ -163,11 +163,17 @@ xPathScrapers:
       Tags: &tagsAttr
         Name: //div[@class="categories"]/a/text()
       Image: &imageAttr
-        selector: //img[@class="fake-video-player-cover"]/@src
+        # Newer scenes have video elements with a poster attribute
+        # but older scenes still have an image element
+        selector: //video/@poster | //img[@class="fake-video-player-cover"]/@src
         postProcess:
           - replace:
-              - regex: ^
-                with: "https:"
+              # Old-style image links do not always include the protocol
+              - regex: ^//
+                with: https://
+              # There are higher res scene covers that aren't used on their public pages
+              - regex: 1280\.
+                with: "1920."
 
     gallery:
       Title: &galleryTitleAttr
@@ -236,7 +242,7 @@ xPathScrapers:
                 - regex: ^(.+?)\s-.+$
                   with: $1
             - map:
-                Nubiles: Nubiles.net      
+                Nubiles: Nubiles.net
       Tags: *tagsAttr
       Image: *imageAttr
 
@@ -248,4 +254,4 @@ xPathScrapers:
       Performers: *performersAttr
       Tags: *tagsAttr
       Studio: *studioFromTitleAttr
-# Last Updated June 14, 2024
+# Last Updated July 14, 2024

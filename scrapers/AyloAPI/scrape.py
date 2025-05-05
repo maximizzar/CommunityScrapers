@@ -194,7 +194,7 @@ def get_studio(api_object: dict) -> ScrapedStudio | None:
     studio_name = dig(api_object, "collections", 0, "name")
     parent_name = dig(api_object, "brandMeta", ("displayName", "name", "shortName"))
     if studio_name:
-        if parent_name.lower() != studio_name.lower():
+        if parent_name and parent_name.lower() != studio_name.lower():
             return {
                 "name": studio_name,
                 "parent": {"name": parent_name},
@@ -235,13 +235,16 @@ tags_map = {
 
 
 def to_tag(api_object: dict) -> ScrapedTag:
-    mapped_tag = tags_map.get(api_object["id"], api_object["name"].strip())
+    tag_id: int = api_object["id"]
+    name: str = api_object["name"].strip()
+    mapped_tag = tags_map.get(tag_id, name)
     return {"name": mapped_tag}
 
 
 def to_tags(api_object: dict) -> list[ScrapedTag]:
     tags = api_object.get("tags", [])
-    return [to_tag(x) for x in tags if "name" in x or x.get("id") in tags_map.keys()]
+    valid_tags = [x for x in tags if "name" in x or x.get("id") in tags_map.keys()]
+    return [to_tag(x) for x in valid_tags]
 
 
 def to_marker(api_object: dict) -> dict:
@@ -313,7 +316,7 @@ def to_scraped_performer(
         performer["tags"] = tags
 
     if site:
-        performer["url"] = _construct_performer_url(performer_from_api, site)
+        performer["urls"] = [_construct_performer_url(performer_from_api, site)]
 
     return performer
 
@@ -327,9 +330,11 @@ def to_scraped_movie(movie_from_api: dict) -> ScrapedMovie:
 
     movie: ScrapedMovie = {
         "name": movie_from_api["title"],
-        "synopsis": dig(movie_from_api, "description"),
         "url": _construct_url(movie_from_api),
     }
+
+    if synopsis := dig(movie_from_api, "description"):
+        movie["synopsis"] = synopsis
 
     if front_image := dig(movie_from_api, "images", "cover", "0", "xx", "url"):
         movie["front_image"] = re.sub(r"/m=[^/]+", "", front_image)
@@ -354,14 +359,9 @@ def to_scraped_scene(scene_from_api: dict) -> ScrapedScene:
         log.error(f"Attempted to scrape a '{wrong_type}' (ID: {wrong_id}) as a scene.")
         raise ValueError("Invalid scene from API")
 
-    if (details := dig(scene_from_api, "description")) or (details := dig(scene_from_api, "parent", "description")):
-        details = unescape(details)
-        details = "\n".join([" ".join([s for s in x.strip(" ").split(" ") if s != ""]) for x in "".join(details).split("\n")])
-
     scene: ScrapedScene = {
         "title": scene_from_api["title"],
         "code": str(scene_from_api["id"]),
-        "details": details,
         "date": datetime.strptime(
             scene_from_api["dateReleased"], "%Y-%m-%dT%H:%M:%S%z"
         ).strftime("%Y-%m-%d"),
@@ -372,6 +372,17 @@ def to_scraped_scene(scene_from_api: dict) -> ScrapedScene:
         ],
         "tags": to_tags(scene_from_api),
     }
+
+    if (details := dig(scene_from_api, "description")) or (
+        details := dig(scene_from_api, "parent", "description")
+    ):
+        details = unescape(details)
+        scene["details"] = "\n".join(
+            [
+                " ".join([s for s in x.strip(" ").split(" ") if s != ""])
+                for x in "".join(details).split("\n")
+            ]
+        )
 
     if image := dig(
         scene_from_api,
@@ -393,6 +404,15 @@ def to_scraped_scene(scene_from_api: dict) -> ScrapedScene:
         scene["markers"] = [to_marker(m) for m in markers]  # type: ignore
 
     return scene
+
+
+def to_scraped_gallery(scraped_scene: ScrapedScene) -> ScrapedGallery:
+    gallery_keys = ScrapedGallery.__required_keys__ | ScrapedGallery.__optional_keys__
+    gallery: ScrapedGallery = {
+        k: v for k, v in scraped_scene.items() if k in gallery_keys
+    }  # type: ignore
+
+    return gallery
 
 
 ## Primary functions used to scrape from Aylo's API
@@ -867,7 +887,7 @@ def scene_from_fragment(
     if url := fragment.get("url"):
         log.debug(f"Using scene URL: '{url}'")
         if scene := scene_from_url(url, postprocess=postprocess):
-            if markers := scene.pop("markers", []):  # type: ignore
+            if markers := dig(scene, "markers", default=[]):
                 if fragment["id"] and config.scrape_markers:
                     add_markers(fragment["id"], markers)
                 else:
@@ -884,6 +904,42 @@ def scene_from_fragment(
         ):
             return scene
         log.debug("Failed to find scene by title")
+
+    log.warning("Cannot scrape from this fragment: need to have title or url set")
+
+
+def gallery_from_fragment(
+    fragment: dict,
+    search_domains: list[str] | None = None,
+    min_ratio=config.minimum_similarity,
+    postprocess: Callable[[ScrapedScene, dict], ScrapedScene] = default_postprocess,
+) -> ScrapedGallery | None:
+    """
+    Scrapes a gallery from a fragment, which must contain at least one of the following:
+    - url: the URL of the scene the gallery belongs to
+    - title: the title of the scene the gallery belongs to
+
+    If domains is provided it will only search those domains,
+    otherwise it will search all known domains (this could be very slow!)
+
+    If min_ratio is provided _AND_ the fragment contains a title but no URL,
+    the search will only return a scene if a match with at least that ratio is found
+
+    If postprocess is provided it will be called on the result before returning
+    """
+    log.debug(f"Fragment scraping gallery {fragment['id']}")
+    if url := fragment.get("url"):
+        log.debug(f"Using gallery URL: '{url}'")
+        if gallery := gallery_from_url(url, postprocess=postprocess):
+            return gallery
+        log.debug("Failed to scrape gallery from URL")
+    if title := fragment.get("title"):
+        log.debug(f"Searching for '{title}'")
+        if scene := find_scene(
+            title, search_domains, min_ratio, postprocess=postprocess
+        ):
+            return to_scraped_gallery(scene)
+        log.debug("Failed to find gallery by title")
 
     log.warning("Cannot scrape from this fragment: need to have title or url set")
 
@@ -927,8 +983,11 @@ def main_scraper():
     op, args = scraper_args()
     result = None
     match op, args:
-        case "gallery-by-url" | "gallery-by-fragment", {"url": url} if url:
+        case "gallery-by-url", {"url": url} if url:
             result = gallery_from_url(url)
+        case "gallery-by-fragment":
+            domains = args.get("extra", None)
+            result = gallery_from_fragment(args, search_domains=domains)
         case "scene-by-url", {"url": url} if url:
             result = scene_from_url(url)
         case "scene-by-name", {"name": name, "extra": _domains} if name:

@@ -1,4 +1,5 @@
 name: AdultEmpireCash
+# Scrapes: 18Lust, Black Massive Cocks, Brazilian Trans Girls, Brutha's Inc, Concoxxxion, Elegant Angel, Forbidden Fruits Films, Horny Household, Hot Wife Fun, Hot Wives Cheating, Jay's POV, Jodi West, Kings of Fetish, Latino Guys Porn, Only3X, Reagan Foxx, Rodney Moore, Severe Sex Films, Smut Factor, Spankmonster, StepHouseXXX, Third World Media, Transational Fantasies, West Coast Productions
 # Sites ("Brands") from https://www.adultempirecash.com
 sceneByURL:
   - action: scrapeXPath
@@ -18,6 +19,8 @@ sceneByURL:
       - jodiwest.com/
       - kingsoffetish.com/
       - latinoguysporn.com/
+      - lewood.com/
+      - only3x.com/
       - pornstarstroker.com/ # aggregator site?
       - reaganfoxx.com/
       - rodneymoorestore.com
@@ -42,6 +45,7 @@ movieByURL:
       - elegantangel.com/
       - filthykings.com/
       - forbiddenfruitsfilms.com/
+      - lewood.com/
       - rodneymoorestore.com
       - severesexfilms.com/
       # - shemalestrokers.com/ # Scenes published as movies?
@@ -54,8 +58,8 @@ movieByURL:
 xPathScrapers:
   sceneScraper:
     scene:
-      Title: //h1[@class="description"]/text()
-      Date:
+      Title: &TitleSel //h1[@class="description"]/text()
+      Date: &DateSel
         selector: //div[@class="release-date"][1]/text()
         postProcess:
           - parseDate: Jan 02, 2006
@@ -69,10 +73,13 @@ xPathScrapers:
       Studio:
         Name:
           selector: //div[@class="studio"]/span[contains(text(),"Studio:")]/following-sibling::*
-          postProcess:
+          postProcess: &PP
             # Override studio name only when needed
             - map:
+                Evil Angel - LeWood: LeWood
                 Jay Rock Clips: Jay's POV
+                LeWood Productions: LeWood
+                LeWood Selects: LeWood
             - replace:
                 # 'Jane Doe Clips' => 'Jane Doe'
                 - regex: \sClips$
@@ -88,6 +95,8 @@ xPathScrapers:
                 with: " "
               - regex: " ,"
                 with: ","
+              - regex: "Francesca Le, Mark Wood"
+                with: "Le Wood"
       Code:
         selector: //meta[@name="og:url"]/@content
         postProcess:
@@ -99,11 +108,8 @@ xPathScrapers:
 
   movieScraper:
     movie:
-      Name: //h1[@class="description"]/text()
-      Date:
-        selector: //div[@class="release-date"][1]/text()
-        postProcess:
-          - parseDate: Jan 02, 2006
+      Name: *TitleSel
+      Date: *DateSel
       Synopsis:
         selector: //div[@class="synopsis"]//text()
         concat: "\n\n"
@@ -119,12 +125,11 @@ xPathScrapers:
       Studio:
         Name:
           selector: //div[@class="studio"]/a
-          postProcess:
-            - replace:
-                # 'Jane Doe Clips' => 'Jane Doe'
-                - regex: \sClips$
-                  with:
+          postProcess: *PP
       FrontImage: //link[@rel="image_src"]/@href
       BackImage: //div[@class="carousel-item"]/img/@data-src
-
-# Last Updated April 29, 2024
+driver:
+  headers:
+    - Key: "Cookie"
+      Value: "ageConfirmed=true"
+# Last Updated March 9, 2025
